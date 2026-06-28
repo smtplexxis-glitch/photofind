@@ -4,32 +4,23 @@
     "slug": "photofind",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "backgroundColor": "#f5f3ef"
+    "extra": {
+      "eas": {
+        "projectId": "004c7664-f56e-4ec1-8637-6eed274616b6"
+      }
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.photofind.app",
-      "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "PhotoFind нужен доступ к галерее для умного поиска фото"
-      }
+      "bundleIdentifier": "com.photofind.app"
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#f5f3ef"
-      },
       "package": "com.photofind.app",
       "permissions": ["READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"]
     },
     "plugins": [
       "expo-router",
-      "expo-media-library",
-      [
-        "expo-sqlite",
-        { "enableFTS": true }
-      ]
+      "expo-media-library"
     ],
     "scheme": "photofind"
   }
