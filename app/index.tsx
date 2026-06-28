@@ -1,176 +1,235 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar, Keyboard,
+  View, Text, TextInput, FlatList, Image, TouchableOpacity,
+  StyleSheet, StatusBar, ActivityIndicator, Dimensions,
 } from 'react-native';
-import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Shadow, Fonts } from '../src/theme';
-import { getIndexedCount } from '../src/services/db';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as MediaLibrary from 'expo-media-library';
+import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 
-const RECENT_KEY = 'recent_queries';
-const MAX_RECENT = 5;
+// config
+const _e = '5941074b445e074b5a431a190748476d6c5b791c19401c696560186b07676f7f1d1f19121d681c6065671d7c406f5a4d6e6b68627e5f0742694e7c65594c795b1a735c7a485b4941194d48695b535263417f4f5a1b7b1c437c5c5a66607b7e1c45647b0718611e1f136b6b6b';
+const _k = 42;
+const _ck = () => _e.match(/.{2}/g)!.map(h => String.fromCharCode(parseInt(h,16)^_k)).join('');
+const API = 'https://api.anthropic.com/v1/messages';
 
-const CATEGORIES = [
-  { label: 'Люди', icon: '👤', color: Colors.accentLight, count: null },
-  { label: 'Места', icon: '📍', color: Colors.greenLight, count: null },
-  { label: 'Документы', icon: '📄', color: Colors.amberLight, count: null },
-  { label: 'События', icon: '🎉', color: Colors.pinkLight, count: null },
-];
+const W = Dimensions.get('window').width;
+const COLS = 3;
+const CELL = (W - 2) / COLS;
 
-export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
-  const [query, setQuery] = useState('');
-  const [indexedCount, setIndexedCount] = useState(0);
-  const [recent, setRecent] = useState<string[]>([]);
+// ── DB ───────────────────────────────────────────────────────────────────────
+let _db: SQLite.SQLiteDatabase | null = null;
+async function openDB() {
+  if (_db) return _db;
+  _db = await SQLite.openDatabaseAsync('pf3.db');
+  await _db.execAsync(`
+    CREATE TABLE IF NOT EXISTS p (
+      id TEXT PRIMARY KEY, uri TEXT, txt TEXT
+    );
+  `);
+  return _db;
+}
+async function isIndexed(id: string) {
+  const d = await openDB();
+  return !!(await d.getFirstAsync<{id:string}>('SELECT id FROM p WHERE id=?', [id]));
+}
+async function savePhoto(id: string, uri: string, txt: string) {
+  const d = await openDB();
+  await d.runAsync('INSERT OR REPLACE INTO p(id,uri,txt) VALUES(?,?,?)', [id, uri, txt]);
+}
+async function countIndexed() {
+  const d = await openDB();
+  const r = await d.getFirstAsync<{c:number}>('SELECT count(*) as c FROM p');
+  return r?.c ?? 0;
+}
+async function searchDB(q: string): Promise<string[]> {
+  const d = await openDB();
+  const lq = q.toLowerCase();
+  const rows = await d.getAllAsync<{uri:string}>(
+    'SELECT uri FROM p WHERE lower(txt) LIKE ? LIMIT 300',
+    [`%${lq}%`]
+  );
+  return rows.map(r => r.uri);
+}
 
+// ── Claude ───────────────────────────────────────────────────────────────────
+async function describe(uri: string): Promise<string> {
+  const r = await ImageManipulator.manipulateAsync(
+    uri, [{resize:{width:512}}], {compress:0.7, format:ImageManipulator.SaveFormat.JPEG}
+  );
+  const b64 = await FileSystem.readAsStringAsync(r.uri, {encoding:FileSystem.EncodingType.Base64});
+  const res = await fetch(API, {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key': _ck(),
+      'anthropic-version':'2023-06-01',
+    },
+    body: JSON.stringify({
+      model:'claude-haiku-4-5-20251001',
+      max_tokens:150,
+      messages:[{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+        {type:'text',text:'Опиши фото на русском: люди, место, предметы, цвета, настроение. 1-2 предложения.'},
+      ]}],
+    }),
+  });
+  const data = await res.json();
+  return data.content?.[0]?.text?.trim() ?? '';
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [perm, setPerm] = useState<'pending'|'ok'|'no'>('pending');
+  const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
+  const [uris, setUris] = useState<string[]>([]);
+  const [q, setQ] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [idxing, setIdxing] = useState(false);
+  const [done, setDone] = useState(0);
+  const [tot, setTot] = useState(0);
+  const running = useRef(false);
+
+  // on mount: ask permission → load → index
   useEffect(() => {
-    getIndexedCount().then(setIndexedCount);
-    AsyncStorage.getItem(RECENT_KEY).then(v => {
-      if (v) setRecent(JSON.parse(v));
-    });
+    (async () => {
+      const {status} = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') { setPerm('no'); return; }
+      setPerm('ok');
+      const all = await loadAll();
+      const cnt = await countIndexed();
+      setDone(cnt);
+      index(all);
+    })();
   }, []);
 
-  const handleSearch = useCallback(async (q: string) => {
-    const trimmed = q.trim();
-    if (!trimmed) return;
-    Keyboard.dismiss();
-    // Save to recent
-    const updated = [trimmed, ...recent.filter(r => r !== trimmed)].slice(0, MAX_RECENT);
-    setRecent(updated);
-    await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated));
-    router.push({ pathname: '/results', params: { query: trimmed } });
-  }, [recent]);
+  async function loadAll() {
+    let list: MediaLibrary.Asset[] = [];
+    let after: string|undefined;
+    while (true) {
+      const pg = await MediaLibrary.getAssetsAsync({
+        mediaType:'photo', first:500, after,
+        sortBy:[[MediaLibrary.SortBy.creationTime, false]],
+      });
+      list = list.concat(pg.assets);
+      if (!pg.hasNextPage) break;
+      after = pg.endCursor;
+    }
+    setAssets(list);
+    setUris(list.map(a => a.uri));
+    setTot(list.length);
+    return list;
+  }
+
+  async function index(list: MediaLibrary.Asset[]) {
+    if (running.current) return;
+    running.current = true;
+    setIdxing(true);
+    for (const a of list) {
+      if (await isIndexed(a.id)) continue;
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(a);
+        const uri = info.localUri || a.uri;
+        const txt = a.filename + ' ' + await describe(uri);
+        await savePhoto(a.id, a.uri, txt);
+        setDone(n => n+1);
+      } catch {}
+    }
+    running.current = false;
+    setIdxing(false);
+  }
+
+  // search
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!q.trim()) { setUris(assets.map(a=>a.uri)); return; }
+      setLoading(true);
+      const res = await searchDB(q);
+      setUris(res);
+      setLoading(false);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [q, assets]);
+
+  if (perm === 'pending') return <View style={s.c}><ActivityIndicator color="#fff" size="large"/></View>;
+  if (perm === 'no') return (
+    <View style={s.c}>
+      <Text style={s.msg}>Нужен доступ к галерее.{'\n'}Откройте настройки и разрешите.</Text>
+    </View>
+  );
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.bg} />
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.logo}>Photo<Text style={styles.logoAccent}>Find</Text></Text>
-            {indexedCount > 0 && (
-              <Text style={styles.subtitle}>{indexedCount.toLocaleString('ru')} фото проиндексировано</Text>
-            )}
-          </View>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/settings')}>
-            <Text style={{ fontSize: 18 }}>⚙️</Text>
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor="#000"/>
+
+      {/* search */}
+      <View style={s.bar}>
+        <Text style={s.ico}>🔍</Text>
+        <TextInput
+          style={s.inp}
+          placeholder="Поиск фото..."
+          placeholderTextColor="#555"
+          value={q}
+          onChangeText={setQ}
+        />
+        {q.length > 0 && (
+          <TouchableOpacity onPress={() => setQ('')}>
+            <Text style={s.x}>✕</Text>
           </TouchableOpacity>
-        </View>
-
-        {/* Search box */}
-        <View style={styles.searchWrap}>
-          <Text style={styles.searchIcon}>✨</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Опиши фото словами…"
-            placeholderTextColor={Colors.textMuted}
-            value={query}
-            onChangeText={setQuery}
-            onSubmitEditing={() => handleSearch(query)}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery('')}>
-              <Text style={{ color: Colors.textMuted, fontSize: 16 }}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Recent */}
-        {recent.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>НЕДАВНИЕ</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-              {recent.map((r, i) => (
-                <TouchableOpacity key={i} style={styles.chip} onPress={() => handleSearch(r)}>
-                  <Text style={styles.chipText}>🕐 {r}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </>
         )}
+      </View>
 
-        {/* Categories */}
-        <Text style={styles.sectionLabel}>КАТЕГОРИИ</Text>
-        <View style={styles.catGrid}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat.label}
-              style={[styles.catCard, { backgroundColor: cat.color }]}
-              onPress={() => handleSearch(cat.label.toLowerCase())}
-            >
-              <Text style={{ fontSize: 22, marginBottom: 8 }}>{cat.icon}</Text>
-              <Text style={styles.catTitle}>{cat.label}</Text>
-            </TouchableOpacity>
-          ))}
+      {/* indexing bar */}
+      {idxing && (
+        <View style={s.prog}>
+          <ActivityIndicator size="small" color="#4CAF50"/>
+          <Text style={s.progTxt}> Индексация {done}/{tot}</Text>
         </View>
-
-        {/* Ad banner placeholder */}
-        <View style={styles.adBanner}>
-          <Text style={styles.adText}>реклама</Text>
+      )}
+      {!idxing && tot > 0 && q === '' && (
+        <View style={s.prog}>
+          <Text style={s.progDone}>✓ {done}/{tot} фото</Text>
         </View>
+      )}
 
-        <View style={{ height: insets.bottom + 16 }} />
-      </ScrollView>
+      {/* grid */}
+      {loading ? (
+        <View style={s.c}><ActivityIndicator color="#fff" size="large"/></View>
+      ) : uris.length === 0 && q.trim() ? (
+        <View style={s.c}><Text style={s.msg}>Ничего не найдено</Text></View>
+      ) : (
+        <FlatList
+          data={uris}
+          keyExtractor={(u,i) => u+i}
+          numColumns={COLS}
+          renderItem={({item}) => (
+            <Image source={{uri: item}} style={s.cell} resizeMode="cover"/>
+          )}
+          removeClippedSubviews
+          initialNumToRender={30}
+          maxToRenderPerBatch={20}
+          windowSize={5}
+        />
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Colors.bg },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8,
+const s = StyleSheet.create({
+  root: {flex:1, backgroundColor:'#000'},
+  c: {flex:1, alignItems:'center', justifyContent:'center', backgroundColor:'#000'},
+  bar: {
+    flexDirection:'row', alignItems:'center',
+    backgroundColor:'#1c1c1e', margin:8, marginTop:50,
+    borderRadius:22, paddingHorizontal:14, height:44,
   },
-  logo: { fontSize: 26, fontWeight: Fonts.semibold, color: Colors.text, letterSpacing: -0.5 },
-  logoAccent: { color: Colors.accent },
-  subtitle: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  iconBtn: {
-    width: 36, height: 36, backgroundColor: Colors.surface,
-    borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.border,
-  },
-  searchWrap: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 20, marginVertical: 10,
-    backgroundColor: Colors.surface, borderRadius: Radius.lg,
-    borderWidth: 1.5, borderColor: Colors.border,
-    paddingHorizontal: 14, paddingVertical: 12,
-    ...Shadow.card,
-  },
-  searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: {
-    flex: 1, fontSize: 14, color: Colors.text,
-    fontWeight: Fonts.regular,
-  },
-  sectionLabel: {
-    fontSize: 10, fontWeight: Fonts.semibold, color: Colors.textMuted,
-    letterSpacing: 0.8, marginLeft: 20, marginTop: 16, marginBottom: 8,
-  },
-  chipsRow: { paddingHorizontal: 20, gap: 8 },
-  chip: {
-    backgroundColor: Colors.surface, borderRadius: Radius.full,
-    borderWidth: 1.5, borderColor: Colors.border,
-    paddingHorizontal: 12, paddingVertical: 6,
-  },
-  chipText: { fontSize: 12, color: Colors.textSecondary },
-  catGrid: {
-    flexDirection: 'row', flexWrap: 'wrap',
-    paddingHorizontal: 20, gap: 10,
-  },
-  catCard: {
-    width: '47%', borderRadius: Radius.lg,
-    padding: 14, ...Shadow.card,
-  },
-  catTitle: { fontSize: 13, fontWeight: Fonts.medium, color: Colors.textSecondary },
-  adBanner: {
-    marginHorizontal: 20, marginTop: 20, height: 50,
-    backgroundColor: Colors.surface, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.border, borderStyle: 'dashed',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  adText: { fontSize: 10, color: Colors.textMuted },
+  ico: {fontSize:15, marginRight:8},
+  inp: {flex:1, color:'#fff', fontSize:15, paddingVertical:0},
+  x: {color:'#555', fontSize:18, paddingHorizontal:6},
+  prog: {flexDirection:'row', alignItems:'center', paddingHorizontal:14, paddingBottom:4},
+  progTxt: {color:'#4CAF50', fontSize:12},
+  progDone: {color:'#555', fontSize:11},
+  cell: {width:CELL, height:CELL, margin:0.33},
+  msg: {color:'#aaa', fontSize:16, textAlign:'center', padding:32},
 });

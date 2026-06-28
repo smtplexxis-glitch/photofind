@@ -2,30 +2,13 @@
   "expo": {
     "name": "PhotoFind",
     "slug": "photofind",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
-    "extra": {
-      "eas": {
-        "projectId": "004c7664-f56e-4ec1-8637-6eed274616b6"
-      }
-    },
-    "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.photofind.app"
-    },
-    "android": {
-      "package": "com.photofind.app",
-      "permissions": [
-        "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE"
-      ]
-    },
-    "plugins": [
-      "expo-router",
-      "expo-media-library"
-    ],
-    "scheme": "photofind",
-    "owner": "atakatapis-team"
+    "owner": "atakatapis-team",
+    "extra": {"eas": {"projectId": "004c7664-f56e-4ec1-8637-6eed274616b6"}},
+    "ios": {"supportsTablet": false, "bundleIdentifier": "com.photofind.app"},
+    "android": {"package": "com.photofind.app", "permissions": ["READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"]},
+    "plugins": ["expo-router", "expo-media-library"],
+    "scheme": "photofind"
   }
 }
