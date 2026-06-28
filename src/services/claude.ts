@@ -1,7 +1,6 @@
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_CLAUDE_API_KEY ?? '';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 
-// Parse user search query into FTS keywords
 export async function parseSearchQuery(query: string): Promise<string> {
   const response = await fetch(API_URL, {
     method: 'POST',
@@ -28,7 +27,6 @@ Keywords:`,
   return keywords;
 }
 
-// Describe a photo using Claude Vision (base64)
 export async function describePhoto(base64: string): Promise<{ description: string; tags: string[] }> {
   const response = await fetch(API_URL, {
     method: 'POST',
