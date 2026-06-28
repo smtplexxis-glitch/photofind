@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Fonts } from '../../src/theme';
+import { Colors, Radius, Fonts } from '../src/theme';
 
 const { width, height } = Dimensions.get('window');
 
