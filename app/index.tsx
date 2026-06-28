@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Shadow, Fonts } from '../../src/theme';
-import { getIndexedCount } from '../../src/services/db';
+import { Colors, Radius, Shadow, Fonts } from '../src/theme';
+import { getIndexedCount } from '../src/services/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const RECENT_KEY = 'recent_queries';
