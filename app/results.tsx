@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Shadow, Fonts } from '../../src/theme';
-import { searchPhotos, SearchResult } from '../../src/services/db';
-import { parseSearchQuery } from '../../src/services/claude';
+import { Colors, Radius, Shadow, Fonts } from '../src/theme';
+import { searchPhotos, SearchResult } from '../src/services/db';
+import { parseSearchQuery } from '../src/services/claude';
 
 const { width } = Dimensions.get('window');
 const COLS = 3;
