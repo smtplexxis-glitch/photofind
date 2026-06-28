@@ -4,8 +4,8 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Shadow, Fonts } from '../../src/theme';
-import { startIndexing, IndexingProgress } from '../../src/services/indexer';
+import { Colors, Radius, Shadow, Fonts } from '../src/theme';
+import { startIndexing, IndexingProgress } from '../src/services/indexer';
 
 const STEPS = [
   { label: 'Люди и лица', icon: '👤' },
