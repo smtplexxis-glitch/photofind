@@ -5,8 +5,8 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors, Radius, Shadow, Fonts } from '../../src/theme';
-import { getIndexedCount } from '../../src/services/db';
+import { Colors, Radius, Shadow, Fonts } from '../src/theme';
+import { getIndexedCount } from '../src/services/db';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
