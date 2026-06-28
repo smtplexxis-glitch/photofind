@@ -16,12 +16,16 @@
     },
     "android": {
       "package": "com.photofind.app",
-      "permissions": ["READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"]
+      "permissions": [
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ]
     },
     "plugins": [
       "expo-router",
       "expo-media-library"
     ],
-    "scheme": "photofind"
+    "scheme": "photofind",
+    "owner": "atakatapis-team"
   }
 }
