@@ -36,7 +36,9 @@
     "expo-keep-awake": "~13.0.2",
     "expo-web-browser": "~13.0.3",
     "expo-image": "~1.12.15",
-    "expo-system-ui": "~3.0.7"
+    "expo-system-ui": "~3.0.7",
+    "expo-sharing": "~11.10.0",
+    "expo-clipboard": "~6.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
