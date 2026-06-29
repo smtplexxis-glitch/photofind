@@ -2,7 +2,7 @@
   "expo": {
     "name": "PhotoFind",
     "slug": "photofind",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "owner": "atakatapis-team",
     "extra": {
@@ -23,17 +23,7 @@
     },
     "plugins": [
       "expo-router",
-      "expo-media-library",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "compileSdkVersion": 34,
-            "targetSdkVersion": 34,
-            "buildToolsVersion": "34.0.0"
-          }
-        }
-      ]
+      "expo-media-library"
     ],
     "scheme": "photofind"
   }
