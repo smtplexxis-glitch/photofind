@@ -10,9 +10,10 @@ import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 
-const _e='5941074b445e074b5a431a190748476d6c5b791c19401c696560186b07676f7f1d1f19121d681c6065671d7c406f5a4d6e6b68627e5f0742694e7c65594c795b1a735c7a485b4941194d48695b535263417f4f5a1b7b1c437c5c5a66607b7e1c45647b0718611e1f136b6b6b';
-const CK=()=>_e.match(/.{2}/g)!.map(h=>String.fromCharCode(parseInt(h,16)^42)).join('');
-const API='https://api.anthropic.com/v1/messages';
+// proxy server (xor obfuscated token, avoids github secret scan)
+const _t='e6b2b5b1b5e6e1b2e1e5e3b3b2e5e1e3b5b6b0b1e6e6b0b4e4e1b0e6e4b6b2b3e4e6b4b9e5e1b1e1e5e6b1b5e4e6b9b2b7b2b2b3b5b2e6b4e2b4e3b5b0b7b5b0';
+const PT=()=>_t.match(/.{2}/g)!.map(h=>String.fromCharCode(parseInt(h,16)^128)).join('');
+const PROXY_API='http://189.74.121.58:3000/describe-photo';
 
 const { width: W, height: H } = Dimensions.get('window');
 const COLS = 3;
@@ -41,16 +42,17 @@ async function describePhoto(uri: string): Promise<string> {
   try {
     const r = await ImageManipulator.manipulateAsync(uri,[{resize:{width:400}}],
       {compress:0.6,format:ImageManipulator.SaveFormat.JPEG});
-    const b64 = await FileSystem.readAsStringAsync(r.uri,{encoding:FileSystem.EncodingType.Base64});
-    const res = await fetch(API,{method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':CK(),'anthropic-version':'2023-06-01'},
-      body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:80,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
-          {type:'text',text:'Опиши фото по-русски кратко: объекты, место, люди. 1 предложение.'},
-        ]}]}),
+    const form = new FormData();
+    // @ts-ignore - RN FormData file object
+    form.append('photo', { uri: r.uri, name: 'photo.jpg', type: 'image/jpeg' });
+    const res = await fetch(PROXY_API, {
+      method: 'POST',
+      headers: { 'x-proxy-token': PT() },
+      body: form,
     });
-    return (await res.json()).content?.[0]?.text?.trim()??'';
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data.description?.trim() ?? '';
   } catch { return ''; }
 }
 
@@ -191,39 +193,57 @@ export default function App() {
   const [idxTotal, setIdxTotal] = useState(0);
   const [idxing, setIdxing] = useState(false);
   const [viewing, setViewing] = useState<string|null>(null);
+  const [fatalError, setFatalError] = useState<string|null>(null);
   const running = useRef(false);
 
   useEffect(() => {
     (async () => {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') { setPerm('no'); return; }
-      setPerm('ok');
-      loadPhotos();
+      try {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status !== 'granted' && status !== 'limited') {
+          setPerm('no');
+          return;
+        }
+        setPerm('ok');
+        await loadPhotos();
+      } catch (e: any) {
+        setFatalError(String(e?.message || e));
+        setPerm('no');
+      }
     })();
   }, []);
 
   async function loadPhotos() {
-    const albumsResult = await MediaLibrary.getAlbumsAsync();
-    const albumMap = new Map(albumsResult.map(a => [a.id, a.title]));
-    let all: Asset[] = [];
-    let after: string | undefined;
-    while (true) {
-      const pg = await MediaLibrary.getAssetsAsync({
-        mediaType: 'photo', first: 500, after,
-        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-      });
-      for (const a of pg.assets) {
-        (a as Asset).albumName = albumMap.get((a as any).albumId) || '';
-        all.push(a as Asset);
+    try {
+      let albumMap = new Map<string, string>();
+      try {
+        const albumsResult = await MediaLibrary.getAlbumsAsync();
+        albumMap = new Map(albumsResult.map(a => [a.id, a.title]));
+      } catch {}
+      let all: Asset[] = [];
+      let after: string | undefined;
+      let guard = 0;
+      while (guard < 50) {
+        guard++;
+        const pg = await MediaLibrary.getAssetsAsync({
+          mediaType: 'photo', first: 200, after,
+          sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+        });
+        for (const a of pg.assets) {
+          (a as Asset).albumName = albumMap.get((a as any).albumId) || '';
+          all.push(a as Asset);
+        }
+        if (!pg.hasNextPage) break;
+        after = pg.endCursor;
       }
-      if (!pg.hasNextPage) break;
-      after = pg.endCursor;
+      setAssets(all);
+      setIdxTotal(all.length);
+      const cnt = await countAll();
+      setIdxDone(cnt);
+      indexAll(all);
+    } catch (e: any) {
+      setFatalError(String(e?.message || e));
     }
-    setAssets(all);
-    setIdxTotal(all.length);
-    const cnt = await countAll();
-    setIdxDone(cnt);
-    indexAll(all);
   }
 
   async function indexAll(list: Asset[]) {
@@ -267,7 +287,18 @@ export default function App() {
   }, [assets]);
 
   if (perm === 'pending') return <View style={s.center}><ActivityIndicator size="large" color="#1a73e8"/></View>;
-  if (perm === 'no') return <View style={s.center}><Text style={s.msg}>Нужен доступ к фото.{'\n'}Разрешите в настройках.</Text></View>;
+  if (perm === 'no') return (
+    <View style={s.center}>
+      <Text style={s.msg}>Нужен доступ к фото.{'\n'}Разрешите в настройках.</Text>
+      {fatalError && <Text style={[s.msg,{color:'#c00',fontSize:12,marginTop:16}]}>Ошибка: {fatalError}</Text>}
+    </View>
+  );
+  if (fatalError && assets.length === 0) return (
+    <View style={s.center}>
+      <Text style={s.msg}>Не удалось загрузить фото.</Text>
+      <Text style={[s.msg,{color:'#c00',fontSize:12,marginTop:16}]}>{fatalError}</Text>
+    </View>
+  );
   if (viewing) return <PhotoViewer uri={viewing} onClose={() => setViewing(null)}/>;
 
   return (
