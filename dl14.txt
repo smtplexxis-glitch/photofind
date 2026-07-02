@@ -1,6 +1,0 @@
-=== wget14 log ===
-nohup: ignoring input
-=== size ===
--rw-r--r-- 1 root root 83735429 Jul  2 16:09 /opt/apk-host/photofind-v1.0.14.apk
-=== proc ===
-no wget

@@ -1,2 +1,0 @@
-=== verify ===
-/opt/apk-host/photofind-v1.0.14.apk
