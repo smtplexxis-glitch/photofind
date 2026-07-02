@@ -10,7 +10,8 @@ const COLS = 3;
 const TILE = Math.floor(W / COLS) - 1;
 
 export default function App() {
-  const [msg, setMsg] = useState('JS запустился, старт...');
+  const BUILD_VERSION = 'BUILD v1.0.13';
+  const [msg, setMsg] = useState(BUILD_VERSION + ' | JS запустился, старт...');
   const [uris, setUris] = useState<string[]>([]);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export default function App() {
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <View style={s.statusBar}>
-        <Text style={s.statusTxt}>{msg}</Text>
+        <Text style={s.statusTxt}>{BUILD_VERSION} | {msg}</Text>
       </View>
       {uris.length === 0 ? (
         <View style={s.center}>
