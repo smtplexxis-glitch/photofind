@@ -182,7 +182,7 @@ function PhotoViewer({ uri, onClose }: { uri: string; onClose: () => void }) {
   );
 }
 
-export default function App() {
+function AppInner() {
   const [perm, setPerm] = useState<'pending'|'ok'|'no'>('pending');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [tab, setTab] = useState<'photos'|'albums'>('photos');
@@ -194,20 +194,25 @@ export default function App() {
   const [idxing, setIdxing] = useState(false);
   const [viewing, setViewing] = useState<string|null>(null);
   const [fatalError, setFatalError] = useState<string|null>(null);
+  const [debugStep, setDebugStep] = useState('init');
   const running = useRef(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status !== 'granted' && status !== 'limited') {
+        setDebugStep('requesting permission');
+        const permResult = await MediaLibrary.requestPermissionsAsync();
+        setDebugStep('perm status: ' + permResult.status);
+        if (permResult.status !== 'granted' && permResult.status !== 'limited') {
           setPerm('no');
           return;
         }
         setPerm('ok');
+        setDebugStep('perm ok, loading photos');
         await loadPhotos();
       } catch (e: any) {
-        setFatalError(String(e?.message || e));
+        setFatalError(String(e?.message || e) + ' | stack: ' + String(e?.stack || '').slice(0,200));
+        setDebugStep('CRASH in permission effect');
         setPerm('no');
       }
     })();
@@ -215,11 +220,15 @@ export default function App() {
 
   async function loadPhotos() {
     try {
+      setDebugStep('loading albums');
       let albumMap = new Map<string, string>();
       try {
         const albumsResult = await MediaLibrary.getAlbumsAsync();
         albumMap = new Map(albumsResult.map(a => [a.id, a.title]));
-      } catch {}
+      } catch (albErr: any) {
+        setDebugStep('albums failed (ignored): ' + String(albErr?.message||albErr));
+      }
+      setDebugStep('fetching assets page 1');
       let all: Asset[] = [];
       let after: string | undefined;
       let guard = 0;
@@ -229,6 +238,7 @@ export default function App() {
           mediaType: 'photo', first: 200, after,
           sortBy: [[MediaLibrary.SortBy.creationTime, false]],
         });
+        setDebugStep(`fetched page ${guard}, got ${pg.assets.length}, hasNext=${pg.hasNextPage}`);
         for (const a of pg.assets) {
           (a as Asset).albumName = albumMap.get((a as any).albumId) || '';
           all.push(a as Asset);
@@ -236,13 +246,16 @@ export default function App() {
         if (!pg.hasNextPage) break;
         after = pg.endCursor;
       }
+      setDebugStep(`total assets fetched: ${all.length}, setting state`);
       setAssets(all);
       setIdxTotal(all.length);
       const cnt = await countAll();
       setIdxDone(cnt);
+      setDebugStep(`done, ${all.length} assets, ${cnt} indexed`);
       indexAll(all);
     } catch (e: any) {
-      setFatalError(String(e?.message || e));
+      setFatalError(String(e?.message || e) + ' | stack: ' + String(e?.stack || '').slice(0,200));
+      setDebugStep('CRASH in loadPhotos');
     }
   }
 
@@ -286,17 +299,31 @@ export default function App() {
     }));
   }, [assets]);
 
-  if (perm === 'pending') return <View style={s.center}><ActivityIndicator size="large" color="#1a73e8"/></View>;
+  const DebugBar = () => (
+    <View style={s.debugBar}>
+      <Text style={s.debugTxt}>perm={perm} assets={assets.length} idx={idxTotal} | {debugStep}</Text>
+      {fatalError && <Text style={[s.debugTxt,{color:'#ff6b6b'}]}>ERR: {fatalError}</Text>}
+    </View>
+  );
+
+  if (perm === 'pending') return (
+    <View style={s.center}>
+      <ActivityIndicator size="large" color="#1a73e8"/>
+      <DebugBar/>
+    </View>
+  );
   if (perm === 'no') return (
     <View style={s.center}>
       <Text style={s.msg}>Нужен доступ к фото.{'\n'}Разрешите в настройках.</Text>
       {fatalError && <Text style={[s.msg,{color:'#c00',fontSize:12,marginTop:16}]}>Ошибка: {fatalError}</Text>}
+      <DebugBar/>
     </View>
   );
   if (fatalError && assets.length === 0) return (
     <View style={s.center}>
       <Text style={s.msg}>Не удалось загрузить фото.</Text>
       <Text style={[s.msg,{color:'#c00',fontSize:12,marginTop:16}]}>{fatalError}</Text>
+      <DebugBar/>
     </View>
   );
   if (viewing) return <PhotoViewer uri={viewing} onClose={() => setViewing(null)}/>;
@@ -329,7 +356,7 @@ export default function App() {
         <FlatList data={assets} keyExtractor={a=>a.id} numColumns={COLS}
           renderItem={({item}) => <TouchableOpacity onPress={()=>setViewing(item.uri)}><Image source={{uri:item.uri}} style={s.tile} resizeMode="cover"/></TouchableOpacity>}
           removeClippedSubviews initialNumToRender={30} maxToRenderPerBatch={15} windowSize={5}
-          ListEmptyComponent={<View style={s.center}><ActivityIndicator size="large" color="#1a73e8"/></View>}/>
+          ListEmptyComponent={<View style={s.center}><ActivityIndicator size="large" color="#1a73e8"/><DebugBar/></View>}/>
       ) : (
         <SectionList sections={albumSections} keyExtractor={(row,i)=>i+row.map(a=>a.id).join('')}
           stickySectionHeadersEnabled
@@ -364,6 +391,8 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
+  debugBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.85)', padding: 8 },
+  debugTxt: { color: '#0f0', fontSize: 10, fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo' },
   root:{flex:1,backgroundColor:'#fff'},
   center:{flex:1,alignItems:'center',justifyContent:'center'},
   header:{backgroundColor:'#fff',paddingTop:Platform.OS==='android'?40:54,paddingHorizontal:12,paddingBottom:8,elevation:1,shadowColor:'#000',shadowOpacity:0.05,shadowRadius:2,shadowOffset:{width:0,height:1}},
@@ -417,3 +446,33 @@ const ev = StyleSheet.create({
   btn:{backgroundColor:'#2d2d2d',padding:16,borderRadius:8,marginBottom:12},
   btnTxt:{color:'#fff',fontSize:15,textAlign:'center'},
 });
+
+
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {error: string|null}> {
+  constructor(props: any) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { error: String(error?.message || error) + ' | ' + String(error?.stack || '').slice(0,300) };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={{flex:1,backgroundColor:'#000',alignItems:'center',justifyContent:'center',padding:24}}>
+          <Text style={{color:'#fff',fontSize:16,marginBottom:12}}>Приложение упало</Text>
+          <Text style={{color:'#ff6b6b',fontSize:12,fontFamily:Platform.OS==='android'?'monospace':'Menlo'}}>{this.state.error}</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner/>
+    </ErrorBoundary>
+  );
+}
