@@ -1,5 +1,0 @@
-=== verify symlink ===
-lrwxrwxrwx 1 root root 21 Jul  2 13:33 /opt/apk-host/photofind-latest.apk -> photofind-v1.0.13.apk
-/opt/apk-host/photofind-v1.0.13.apk
-=== md5 of target ===
-1bd02c8d8babe4ac6056151867a41dcb  /opt/apk-host/photofind-v1.0.13.apk

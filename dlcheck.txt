@@ -1,6 +1,0 @@
-=== wget log ===
-nohup: ignoring input
-=== file size ===
--rw-r--r-- 1 root root 83713040 Jul  2 13:16 /opt/apk-host/photofind-v1.0.13.apk
-=== process check ===
-no wget running
